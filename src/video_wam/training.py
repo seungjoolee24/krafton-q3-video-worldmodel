@@ -44,7 +44,10 @@ def horizon_at(config, completed_steps: int):
 
 def train(kit: Path, cache: Path, out: Path, config: dict, device,
           resume: Path | None = None, persist: Path | None = None,
-          max_steps: int | None = None):
+          max_steps: int | None = None, max_seconds: float | None = None):
+    if max_seconds is not None and max_seconds <= 0:
+        raise ValueError("max_seconds must be positive")
+    budget_started = time.perf_counter()
     seed_everything(config["seed"])
     data = FeatureData(cache, config["model"]["context"])
     manifest, manifest_hash = read_manifest(kit / "dataset")
@@ -78,7 +81,7 @@ def train(kit: Path, cache: Path, out: Path, config: dict, device,
         if saved["model_config"] != model.config_dict():
             raise ValueError("Resume model architecture mismatch")
         # Logging/budget changes are safe; changes to the actual learning recipe are not.
-        ignored = {"total_steps", "log_every", "checkpoint_every", "eval_every", "eval_limit", "preview_episodes"}
+        ignored = {"total_steps", "log_every", "checkpoint_every", "eval_every", "eval_limit", "preview_episodes", "evaluate_at_start"}
         if {k: v for k, v in saved["config"].items() if k not in ignored} != {k: v for k, v in config.items() if k not in ignored}:
             raise ValueError("Resume recipe changed; preserve the original training configuration")
         model.load_state_dict(saved["model"])
@@ -122,8 +125,37 @@ def train(kit: Path, cache: Path, out: Path, config: dict, device,
     model.train()
     started = time.perf_counter()
     initial_step = completed
+    last_validation_step = None
+    stop_reason = "step_budget"
+
+    def exhausted():
+        return max_seconds is not None and time.perf_counter() - budget_started >= max_seconds
+
+    def validate():
+        nonlocal best, recent_validation, last_validation_step
+        report = out / "validation" / f"step_{completed:06d}"
+        recent_validation = evaluate(model, stem, data, device, report,
+                                     config["eval_horizon"], config["eval_limit"],
+                                     config["preview_episodes"])
+        last_validation_step = completed
+        score = recent_validation["mse"]["mean"]
+        print(f"Validation step={completed} prior RGB MSE={score:.6f}, "
+              f"copy-last={recent_validation['copy_last_mse']['mean']:.6f}", flush=True)
+        if persist is not None:
+            destination = persist / "validation" / report.name
+            for artifact in report.iterdir():
+                persist_file(artifact, destination)
+        if score < best:
+            best = score
+            save("best.pt")
+
     try:
+        if completed == 0 and config.get("evaluate_at_start", False):
+            validate()
         while completed < stop:
+            if exhausted():
+                stop_reason = "time_budget"
+                break
             horizon = horizon_at(config, completed)
             grids = data.sample_batch(rng, config["batch_size"], horizon,
                                       config["start_probability"]).to(device)
@@ -143,7 +175,10 @@ def train(kit: Path, cache: Path, out: Path, config: dict, device,
             scaler.step(optimizer)
             scaler.update()
             completed += 1
-            if completed % config["log_every"] == 0 or completed == stop:
+            ending = completed == stop or exhausted()
+            if exhausted() and completed < stop:
+                stop_reason = "time_budget"
+            if completed % config["log_every"] == 0 or ending:
                 seconds = time.perf_counter() - started
                 record = {"step": completed, "horizon": horizon, "beta": beta,
                           "elapsed_seconds": seconds,
@@ -153,26 +188,29 @@ def train(kit: Path, cache: Path, out: Path, config: dict, device,
                 with open(out / "training.jsonl", "a", encoding="utf-8") as stream:
                     stream.write(json.dumps(record) + "\n")
                 print(json.dumps(record), flush=True)
-            if completed % config["eval_every"] == 0 or completed == stop:
-                report = out / "validation" / f"step_{completed:06d}"
-                recent_validation = evaluate(model, stem, data, device, report,
-                                             config["eval_horizon"], config["eval_limit"],
-                                             config["preview_episodes"])
-                score = recent_validation["mse"]["mean"]
-                print(f"Validation prior RGB MSE={score:.6f}, "
-                      f"copy-last={recent_validation['copy_last_mse']['mean']:.6f}", flush=True)
-                if persist is not None:
-                    destination = persist / "validation" / report.name
-                    for artifact in report.iterdir():
-                        persist_file(artifact, destination)
-                if score < best:
-                    best = score
-                    save("best.pt")
-            if completed % config["checkpoint_every"] == 0 or completed == stop:
+            if completed % config["eval_every"] == 0 or ending:
+                validate()
+            if completed % config["checkpoint_every"] == 0 or ending:
                 save("latest.pt")
+            if ending:
+                break
     except KeyboardInterrupt:
         save("latest.pt")
         print(f"Interrupted; last completed update {completed} saved.", flush=True)
         raise
+    if last_validation_step != completed:
+        validate()
+    save("latest.pt")
     save("final.pt")
+    completion = {"step": completed, "requested_steps": stop, "reason": stop_reason,
+                  "wall_seconds": time.perf_counter() - budget_started,
+                  "max_training_seconds": max_seconds,
+                  "final_validation_mse": recent_validation["mse"]["mean"],
+                  "copy_last_mse": recent_validation["copy_last_mse"]["mean"],
+                  "best_validation_mse": best, "actions_used": False}
+    completion["gpu_peak_memory_gb"] = (torch.cuda.max_memory_allocated(device) / 1e9
+                                          if device.type == "cuda" else None)
+    atomic_json(out / "completion.json", completion)
+    persist_file(out / "completion.json", persist)
+    data.close()
     return model

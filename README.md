@@ -2,6 +2,13 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/seungjoolee24/krafton-q3-video-worldmodel/blob/main/notebooks/train_video_only_colab.ipynb)
 
+T4에서 30분 안에 첫 결과를 확인하는 설정:
+[짧은 검증 노트북](https://colab.research.google.com/github/seungjoolee24/krafton-q3-video-worldmodel/blob/main/notebooks/validate_t4_30min.ipynb).
+같은 모델을 학습 16개·검증 4개 영상으로 최대 300회 업데이트합니다.
+약 20MB의 별도 영상 묶음을 사용하고 학습에 10분 상한을 둡니다.
+학습 전후의 32프레임 예측, copy-last 기준선, 손실, 비교 영상을 저장합니다.
+GPU 할당과 로그인 지연은 실행 시 확인해야 하며, 짧은 결과를 전체 성능으로 일반화하지 않습니다.
+
 영상만으로 학습하는 Q3 월드 모델의 첫 구현입니다. 데이터의 실제 행동 파일은 읽지 않습니다.
 **학습된 잠재 행동은 실제 힘 `[-1,1]`와 아직 연결되지 않았습니다.** 이 모델의 미래 예측은
 영상에서 추정한 행동 패턴을 따릅니다. 주어진 실제 힘에 대한 반응과 3-2 제어는 후속 단계입니다.
@@ -55,6 +62,7 @@ posterior/prior KL**입니다. 공간별 움직임 가중치로 정적인 배경
 
 | 설정 | 학습 영상 | 검증 영상 | 업데이트 예산 |
 |---|---:|---:|---:|
+| `t4_quick.json` | 고정 시드로 선택한 16개 | 고정 시드로 선택한 4개 | 최대 300 또는 학습 10분 |
 | `pilot.json` | 고정 시드로 선택한 128개 | 고정 시드로 선택한 32개 | 2,000 |
 | `full.json` | 1,800개 | 200개 | 20,000 |
 

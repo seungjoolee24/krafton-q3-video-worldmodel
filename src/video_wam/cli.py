@@ -46,6 +46,7 @@ def main(argv=None):
     training.add_argument("--resume", type=Path)
     training.add_argument("--persist", type=Path, help="Drive directory for checkpoint/report backups")
     training.add_argument("--max-steps", type=int, help="Absolute total update count, not additional steps")
+    training.add_argument("--max-seconds", type=float, help="Wall-clock limit for training; saves and validates before exiting")
     training.add_argument("--device", default="auto")
     evaluation = commands.add_parser("evaluate", help="Autonomous prior rollout on held-out episodes")
     for item in ["kit", "cache", "checkpoint", "out"]:
@@ -79,7 +80,7 @@ def main(argv=None):
                       arguments.encode_batch, config["model"]["context"] + config["eval_horizon"])
     elif arguments.command == "train":
         train(arguments.kit, arguments.cache, arguments.out, read_config(arguments.config), device,
-              arguments.resume, arguments.persist, arguments.max_steps)
+              arguments.resume, arguments.persist, arguments.max_steps, arguments.max_seconds)
     elif arguments.command == "evaluate":
         if not 1 <= arguments.horizon <= 32:
             parser.error("--horizon must be in [1,32]")

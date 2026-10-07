@@ -117,6 +117,29 @@ class VideoOnlyTests(unittest.TestCase):
             self.assertEqual(saved["step"], 3)
             self.assertFalse(saved["actions_used"])
 
+    def test_time_budget_still_saves_a_validated_checkpoint(self):
+        import itertools
+        import json
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            kit, cache = root / "kit", root / "cache"
+            fake_kit(kit)
+            frames = np.random.default_rng(4).integers(0, 256, (8, 128, 128, 3), dtype=np.uint8)
+            config = tiny_config()
+            with patch("video_wam.data.decode_rgb", return_value=frames), contextlib.redirect_stdout(io.StringIO()):
+                prepare_cache(kit, cache, TinyStem(), torch.device("cpu"), rgb_prefix=8)
+            clock = itertools.chain([0.0, 0.0, 0.0], itertools.repeat(2.0))
+            with patch("video_wam.training.load_reference_stem", side_effect=lambda kit: TinyStem()), \
+                    patch("video_wam.training.time.perf_counter", side_effect=clock), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                train(kit, cache, root / "out", config, torch.device("cpu"), max_seconds=1.0)
+            saved = torch.load(root / "out" / "final.pt", weights_only=True)
+            completion = json.loads((root / "out" / "completion.json").read_text())
+            self.assertEqual(saved["step"], 1)
+            self.assertEqual(completion["reason"], "time_budget")
+            self.assertTrue(np.isfinite(completion["final_validation_mse"]))
+            self.assertTrue((root / "out" / "latest.pt").exists())
+
     def test_episode_leakage_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             cache = Path(folder)
