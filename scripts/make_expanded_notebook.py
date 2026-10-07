@@ -74,9 +74,18 @@ else:
         최종 모델과 검증 오차가 가장 낮았던 best.pt를 구분하여 보여줍니다.
         RGB MSE는 전체 픽셀의 오차, 물체 영역 MSE는 색을 사용하는 보조 지표입니다.
         비교 영상은 검증 오차가 가장 낮았던 모델의 예측입니다. 공식 점수나 힘 복원 정확도는 아닙니다.
+        런타임이 초기화되더라도 이 결과 셀만 실행하면 Drive에 저장된 결과를 다시 볼 수 있습니다.
     """)
     replace(14, '''
+        import json
+        import torch
+        from pathlib import Path
+        from google.colab import drive
         from IPython.display import display, HTML, Video
+        drive.mount("/content/drive")
+        if "DRIVE_RUN" not in globals():
+            DRIVE_RUN = Path("/content/drive/MyDrive/krafton-q3-video-worldmodel/runs/video-only-t4-expanded-v1")
+            LOCAL_RUN = Path("/content/q3-runs/video-only-t4-expanded-v1")
         completion_path = LOCAL_RUN / "completion.json"
         if not completion_path.exists():
             completion_path = DRIVE_RUN / "completion.json"
@@ -107,7 +116,7 @@ else:
         print(f"학습 전 대비 최종 RGB 오차 감소: {(1 - final['mse']['mean'] / initial['mse']['mean']) * 100:.2f}%")
         print(f"copy-last 대비 최종 RGB 오차 감소: {(1 - final['mse']['mean'] / final['copy_last_mse']['mean']) * 100:.2f}%")
         print(f"완료 업데이트: {completion['step']:,} / {completion['requested_steps']:,}; 종료: {completion['reason']}")
-        print(f"학습·검증 시간: {completion['wall_seconds'] / 60:.2f}분; 전체 실행: {(time.time() - EXPANDED_STARTED) / 60:.2f}분")
+        print(f"학습·검증 시간: {completion['wall_seconds'] / 60:.2f}분")
         print(f"학습 GPU 최대 할당 메모리: {completion['gpu_peak_memory_gb']:.3f} GB; 실제 행동 라벨 사용: False")
         print("시점별 최종 RGB MSE:", {key: final["mse"][key] for key in ["h1", "h8", "h16", "h32"]})
         print("저장 위치:", DRIVE_RUN)
