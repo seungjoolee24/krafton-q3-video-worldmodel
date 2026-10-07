@@ -43,7 +43,9 @@ def main(argv=None):
     training = commands.add_parser("train", help="Train without reading any action sidecars")
     for item in ["kit", "cache", "out", "config"]:
         training.add_argument(f"--{item}", type=Path, required=True)
-    training.add_argument("--resume", type=Path)
+    start = training.add_mutually_exclusive_group()
+    start.add_argument("--resume", type=Path)
+    start.add_argument("--init-from", type=Path, help="Model weights only; starts a new run on a new data subset")
     training.add_argument("--persist", type=Path, help="Drive directory for checkpoint/report backups")
     training.add_argument("--max-steps", type=int, help="Absolute total update count, not additional steps")
     training.add_argument("--max-seconds", type=float, help="Wall-clock limit for training; saves and validates before exiting")
@@ -80,7 +82,8 @@ def main(argv=None):
                       arguments.encode_batch, config["model"]["context"] + config["eval_horizon"])
     elif arguments.command == "train":
         train(arguments.kit, arguments.cache, arguments.out, read_config(arguments.config), device,
-              arguments.resume, arguments.persist, arguments.max_steps, arguments.max_seconds)
+              arguments.resume, arguments.persist, arguments.max_steps, arguments.max_seconds,
+              init_from=arguments.init_from)
     elif arguments.command == "evaluate":
         if not 1 <= arguments.horizon <= 32:
             parser.error("--horizon must be in [1,32]")

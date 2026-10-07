@@ -42,9 +42,29 @@ def horizon_at(config, completed_steps: int):
     return horizon
 
 
+def initialize_weights(model, path: Path, cache_index):
+    """Transfer model weights across data subsets, without restoring training state."""
+    saved = torch.load(path, map_location="cpu", weights_only=True)
+    if saved.get("format") != "video-only-wam/1" or saved.get("actions_used") is not False:
+        raise ValueError("Expected a video-only-wam initialization checkpoint")
+    if saved["model_config"] != model.config_dict():
+        raise ValueError("Initialization model architecture mismatch")
+    for key in ["stem_sha256", "stem_architecture_sha256"]:
+        if saved[key] != cache_index[key]:
+            raise ValueError("Initialization stem differs from the current feature space")
+    model.load_state_dict(saved["model"], strict=True)
+    return {"checkpoint": str(path), "source_step": saved["step"],
+            "source_git_revision": saved["git_revision"],
+            "source_cache_fingerprint": saved["cache_fingerprint"],
+            "optimizer_restored": False, "rng_restored": False}
+
+
 def train(kit: Path, cache: Path, out: Path, config: dict, device,
           resume: Path | None = None, persist: Path | None = None,
-          max_steps: int | None = None, max_seconds: float | None = None):
+          max_steps: int | None = None, max_seconds: float | None = None,
+          init_from: Path | None = None):
+    if resume is not None and init_from is not None:
+        raise ValueError("Choose either resume or model-weight initialization")
     if max_seconds is not None and max_seconds <= 0:
         raise ValueError("max_seconds must be positive")
     budget_started = time.perf_counter()
@@ -74,6 +94,11 @@ def train(kit: Path, cache: Path, out: Path, config: dict, device,
     rng = np.random.default_rng(config["seed"])
     completed, best, recent_validation = 0, math.inf, None
     revision = git_revision()
+    initialization = None
+    if init_from is not None:
+        initialization = initialize_weights(model, init_from, data.index)
+        print(f"Initialize model weights from source step {initialization['source_step']}; "
+              "new optimizer and update count start at zero.", flush=True)
     if resume is not None:
         saved = torch.load(resume, map_location="cpu", weights_only=True)
         if saved["cache_fingerprint"] != data.index["fingerprint"]:
@@ -89,6 +114,7 @@ def train(kit: Path, cache: Path, out: Path, config: dict, device,
         scaler.load_state_dict(saved["scaler"])
         completed, best = saved["step"], saved["best_validation_mse"]
         recent_validation = saved.get("validation")
+        initialization = saved.get("initialization")
         restore_rng(saved["rng"], rng)
         print(f"Resume step {completed}, original code {saved['git_revision']}, current code {revision}", flush=True)
     provenance = {"config": config, "git_revision": revision, "cache_fingerprint": data.index["fingerprint"],
@@ -96,12 +122,14 @@ def train(kit: Path, cache: Path, out: Path, config: dict, device,
                   "torch": str(torch.__version__), "device": str(device), "actions_used": False,
                   "gpu": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
                   "trainable_parameters": sum(p.numel() for p in model.parameters()),
-                  "stem_parameters": sum(p.numel() for p in stem.parameters())}
+                  "stem_parameters": sum(p.numel() for p in stem.parameters()),
+                  "initialization": initialization}
     atomic_json(out / "run.json", provenance)
     persist_file(out / "run.json", persist)
     stop = max_steps if max_steps is not None else config["total_steps"]
     if stop <= completed:
         print(f"Already at step {completed}; requested total stop is {stop}. No updates.", flush=True)
+        data.close()
         return model
 
     def save(name: str):
@@ -115,6 +143,7 @@ def train(kit: Path, cache: Path, out: Path, config: dict, device,
             "cache_fingerprint": data.index["fingerprint"],
             "stem_sha256": data.index["stem_sha256"],
             "stem_architecture_sha256": data.index["stem_architecture_sha256"],
+            "initialization": initialization,
         }
         path = out / name
         atomic_torch_save(path, checkpoint)

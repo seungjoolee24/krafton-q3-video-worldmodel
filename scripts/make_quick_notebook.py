@@ -78,12 +78,15 @@ print({"training_seconds_limit": training_budget, "max_updates": MAX_STEPS})
     """)
     replace(14, '''
         from IPython.display import display, Video
-        completion = json.loads((LOCAL_RUN / "completion.json").read_text())
+        RESULT_ROOT = LOCAL_RUN if (LOCAL_RUN / "completion.json").exists() else DRIVE_RUN
+        completion = json.loads((RESULT_ROOT / "completion.json").read_text())
         REPORT = LOCAL_RUN / "validation" / f"step_{completion['step']:06d}"
+        if not (REPORT / "metrics.json").exists():
+            REPORT = DRIVE_RUN / "validation" / f"step_{completion['step']:06d}"
         metrics = json.loads((REPORT / "metrics.json").read_text())
-        initial_path = LOCAL_RUN / "validation" / "step_000000" / "metrics.json"
+        initial_path = RESULT_ROOT / "validation" / "step_000000" / "metrics.json"
         initial = json.loads(initial_path.read_text()) if initial_path.exists() else None
-        loss_path = LOCAL_RUN / "training.jsonl"
+        loss_path = RESULT_ROOT / "training.jsonl"
         logs = [json.loads(line) for line in loss_path.read_text().splitlines()] if loss_path.exists() else []
         display({"completed_updates": completion["step"], "stop_reason": completion["reason"],
                  "total_elapsed_minutes": (time.time() - QUICK_STARTED) / 60,

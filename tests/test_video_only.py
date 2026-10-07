@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +15,7 @@ import torch
 from video_wam.data import FeatureData, prepare_cache
 from video_wam.model import ModelConfig, VideoWorldModel
 from video_wam.smoke import run_smoke
-from video_wam.training import train
+from video_wam.training import initialize_weights, train
 from video_wam.utils import atomic_json
 
 
@@ -139,6 +140,42 @@ class VideoOnlyTests(unittest.TestCase):
             self.assertEqual(completion["reason"], "time_budget")
             self.assertTrue(np.isfinite(completion["final_validation_mse"]))
             self.assertTrue((root / "out" / "latest.pt").exists())
+
+    def test_warm_start_transfers_weights_without_old_training_state(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            kit, cache = root / "kit", root / "cache"
+            fake_kit(kit)
+            frames = np.random.default_rng(4).integers(0, 256, (8, 128, 128, 3), dtype=np.uint8)
+            config = tiny_config()
+            with patch("video_wam.data.decode_rgb", return_value=frames), contextlib.redirect_stdout(io.StringIO()):
+                index = prepare_cache(kit, cache, TinyStem(), torch.device("cpu"), rgb_prefix=8)
+            with patch("video_wam.training.load_reference_stem", side_effect=lambda kit: TinyStem()), contextlib.redirect_stdout(io.StringIO()):
+                train(kit, cache, root / "source", config, torch.device("cpu"))
+                source = torch.load(root / "source" / "final.pt", weights_only=True)
+                source["cache_fingerprint"] = "different-selected-subset"
+                path = root / "old-subset.pt"
+                torch.save(source, path)
+                model = VideoWorldModel(ModelConfig(**config["model"]))
+                info = initialize_weights(model, path, index)
+                for key, value in source["model"].items():
+                    self.assertTrue(torch.equal(value, model.state_dict()[key]), key)
+                self.assertFalse(info["optimizer_restored"])
+                self.assertEqual(info["source_step"], 3)
+                train(kit, cache, root / "warm", config, torch.device("cpu"),
+                      init_from=path, max_steps=1)
+                with self.assertRaisesRegex(ValueError, "cache/split mismatch"):
+                    train(kit, cache, root / "bad-resume", config, torch.device("cpu"), resume=path)
+            warm = torch.load(root / "warm" / "final.pt", weights_only=True)
+            self.assertEqual(warm["step"], 1)
+            self.assertTrue(all(int(state["step"]) == 1 for state in warm["optimizer"]["state"].values()))
+            self.assertEqual(warm["initialization"]["source_step"], 3)
+            provenance = json.loads((root / "warm" / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(provenance["initialization"]["source_cache_fingerprint"], "different-selected-subset")
+            with self.assertRaisesRegex(ValueError, "stem differs"):
+                initialize_weights(model, path, {**index, "stem_sha256": "other-stem"})
+            with self.assertRaisesRegex(ValueError, "either resume"):
+                train(kit, cache, root / "both", config, torch.device("cpu"), resume=path, init_from=path)
 
     def test_episode_leakage_is_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
