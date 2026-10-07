@@ -77,6 +77,14 @@ code('''
     COMMIT = subprocess.check_output(["git", "-C", str(CODE), "rev-parse", "HEAD"], text=True).strip()
     subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(CODE / "requirements-colab.txt")], check=True)
     subprocess.run([sys.executable, "-m", "pip", "install", "-e", str(CODE), "--no-deps"], check=True)
+    # Editable-install .pth files are read by new processes, not the running kernel.
+    SOURCE_PATH = str(CODE / "src")
+    if SOURCE_PATH not in sys.path:
+        sys.path.insert(0, SOURCE_PATH)
+    import importlib
+    importlib.invalidate_caches()
+    import video_wam
+    assert Path(video_wam.__file__).resolve().is_relative_to(CODE.resolve())
     os.chdir(CODE)
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
