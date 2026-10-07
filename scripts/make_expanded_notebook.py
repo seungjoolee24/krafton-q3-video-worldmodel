@@ -54,12 +54,12 @@ def main():
                         'config["batch_size"] = BATCH_SIZE\nconfig["evaluate_at_start"] = True')
     replace(6, data)
     replace(11, """
-        ## 6. 2,000回の追加学習
-        最初に、引き継いだモデルを新しい検証32本で評価します。
-        その後 1 → 4 → 8 → 16 → 32 の予測長で追加学習します。
-        新しいデータに合わせて optimizer と KL ウォームアップを初期化します。
-        この実験自身の latest.pt からの再開時は optimizer・step・乱数も戻します。
-        100回ごとに保存、200回ごとに32本の検証を行い、結果をDriveに保管します。
+        ## 6. 추가 2,000번 학습
+        이어받은 모델을 먼저 새로운 검증 영상 32개에서 평가합니다.
+        이후 1 → 4 → 8 → 16 → 32 프레임의 예측 길이로 추가 학습합니다.
+        새 데이터에 맞춰 optimizer와 KL 워밍업을 초기화합니다.
+        이 확장 실험의 latest.pt에서 재개할 때는 optimizer·step·난수도 복원합니다.
+        100번마다 저장하고 200번마다 32개 영상을 검증하여 Drive에 보관합니다.
     """)
     training = "".join(expanded[12]["source"])
     training = training.replace('    print("Resume:", resume)', '''    print("Resume:", resume)
@@ -70,10 +70,10 @@ else:
     print("Initialize model weights only:", initial_checkpoint)''')
     replace(12, training)
     replace(13, """
-        ## 7. 同じ32本で学習前後を比較
-        最終モデルと、検証誤差が最小だった best.pt を区別して示します。
-        RGB MSE は全画素、物体領域 MSE は色を使った補助指標です。
-        比較動画は最小検証誤差のモデルです。公式スコアや力の復元精度ではありません。
+        ## 7. 같은 32개 영상에서 학습 전후 비교
+        최종 모델과 검증 오차가 가장 낮았던 best.pt를 구분하여 보여줍니다.
+        RGB MSE는 전체 픽셀의 오차, 물체 영역 MSE는 색을 사용하는 보조 지표입니다.
+        비교 영상은 검증 오차가 가장 낮았던 모델의 예측입니다. 공식 점수나 힘 복원 정확도는 아닙니다.
     """)
     replace(14, '''
         from IPython.display import display, HTML, Video
