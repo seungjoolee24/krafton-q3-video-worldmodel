@@ -5,12 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "video-only-wam"
 version = "0.1.0"
-description = "Video-only latent-action world model for the Track 3 dataset"
+description = "Video-only and action-conditioned world models for the Track 3 dataset"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.26,<3", "Pillow>=10,<13", "imageio-ffmpeg==0.6.0"]
 
 [project.scripts]
 video-wam = "video_wam.cli:main"
+action-wam = "action_wam.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

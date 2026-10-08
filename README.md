@@ -1,4 +1,27 @@
-# Q3 · Video-only latent-action world model
+# Q3 · Video and action-conditioned world models
+
+## 행동 라벨 전체를 사용하는 현재 기본 모델
+
+[행동 + 프레임 변화량 T4 학습 노트북](https://colab.research.google.com/github/seungjoolee24/krafton-q3-video-worldmodel/blob/main/notebooks/train_action_difference_t4.ipynb)
+· [모델 구조와 시간 정렬](docs/ACTION_MODEL.md)
+· [모델 코드](src/action_wam/model.py)
+
+행동 라벨이 있는 전체 200개를 기존 에피소드 분할대로 **185개 학습 / 15개 검증**에 사용합니다.
+비라벨 영상과 이전 영상 전용 모델의 가중치는 이 실험에서 사용하지 않습니다. 제공된 시각 stem은 고정합니다.
+과거 영상 32장·행동 31개로 상태를 추정하고, 주어진 미래 행동 32개로 미래 영상 32장을 자율 예측합니다.
+`a[t-1]`은 `I[t-1] → I[t]` 변화와 연결하고, 관측 특징의 1·4·8프레임 차이와 모든 중간 행동을 ConvGRU에 입력합니다.
+새 전이 모델은 438,624 파라미터이며, T4에서 batch 4·FP16·4,000 업데이트가 기본입니다.
+움직임을 강조한 특징 손실에 희소 RGB·윤곽 손실을 더합니다. 자세한 설정은 `configs/action_t4.json`에 있습니다.
+
+데이터 ZIP은 행동 라벨이 있는 200개 MP4·NPZ와 공통 kit 파일만 포함한 175 MB 묶음입니다.
+노트북은 Drive의 `krafton-q3-video-worldmodel/data/`에서 분할 ZIP을 합쳐 체크섬을 검증합니다.
+특징·원본 RGB·행동 캐시는 런타임 로컬 디스크에 약 10.2 GB를 사용하며, 결과는 Drive의
+`runs/action-difference-t4-v1/`에 저장합니다. 학습·검증·로그·체크포인트는 이전 실험과 별도로 보존합니다.
+
+15개 검증 영상의 RGB MSE·물체 영역 보조 오차·Copy-last·1/8/16/32프레임 오차와 행동 입력 진단을 기록합니다.
+공식 예측 점수는 계산하지 않으며, 아직 3-2 제어와 공식 7개 ONNX 제출 패키지는 포함하지 않습니다.
+
+## 이전 영상 전용 실험
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/seungjoolee24/krafton-q3-video-worldmodel/blob/main/notebooks/train_video_only_colab.ipynb)
 
